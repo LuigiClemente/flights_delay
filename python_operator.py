@@ -11,10 +11,10 @@ import time
 
 load_dotenv()
 
+
 class FlightChecker:
     def __init__(self):
         try:
-            # Load environment variables
             self.api_key = os.getenv("FLIGHTS_API_KEY")
             self.airports = os.getenv("AIRPORTS")
             self.airlines = os.getenv("AIRLINES")
@@ -67,12 +67,12 @@ class FlightChecker:
             airport_hours[airport] = (open_hour, close_hour)
         return airport_hours
 
-    def load_flight_data(self, context):
+    def load_flight_data(self, **context):
         """
         Loads flight data from the API and stores it in XCom.
         Retries the API request with exponential backoff in case of failures.
         Args:
-            context (dict): The execution context provided by Airflow
+            context (dict): The task context dictionary
         """
         try:
             url = f"{self.api_host}/{self.api_endpoint}?dep_iata={self.airports}&api_key={self.api_key}"
@@ -97,11 +97,11 @@ class FlightChecker:
             logging.error(f"Error loading flight data: {str(e)}")
             raise
 
-    def analyze_delays(self, context):
+    def analyze_delays(self, **context):
         """
         Analyzes flight delays for each airport and performs appropriate actions.
         Args:
-            context (dict): The execution context provided by Airflow
+            context (dict): The task context dictionary
         """
         try:
             # Retrieve flight data from XCom
@@ -110,28 +110,22 @@ class FlightChecker:
                 logging.warning("Flight data is not loaded")
                 return
 
-            for airport in self.airports.split(","):
-                current_hour = datetime.now().hour
-                opening_hour, closing_hour = self.airport_hours.get(airport, (0, 0))
-                if opening_hour <= current_hour < closing_hour:
-                    delayed_flights = []
-                    for flight in flight_data:
-                        if flight['dep_iata'] == airport and (
-                                self.airlines == 'all' or flight['airline'] in self.airlines.split(",")):
-                            dep_time = datetime.strptime(flight["dep_time"], "%Y-%m-%d %H:%M")
-                            dep_delayed = int(flight["dep_delayed"])
-                            status = flight["status"]
-                            if dep_delayed > self.delay_threshold and dep_time > datetime.now() + timedelta(
-                                    hours=self.time_to_departure_threshold):
-                                delayed_flights.append(flight)
+            for flight in flight_data:
+                if flight[0] == self.airports and (
+                        self.airlines == 'all' or flight[1] in self.airlines.split(",")):
+                    dep_time = datetime.strptime(flight[2], "%Y-%m-%d %H:%M")
+                    dep_delayed = int(flight[3])
+                    status = flight[4]
 
-                    for flight_info in delayed_flights:
-                        flight_iata = flight_info['flight_iata']
+                    if dep_delayed > self.delay_threshold and dep_time > datetime.now() + timedelta(
+                            hours=self.time_to_departure_threshold):
+                        flight_iata = flight[5]
+                        airport = flight[0]
                         if airport in self.last_delay_print_time and flight_iata in self.last_delay_print_time[airport]:
                             continue  # Skip already processed delays
 
                         logging.info(f"Flight {flight_iata} is delayed for airport {airport}.")
-                        self.notify_plugin("Delayed", flight_info, airport=airport, flight_iata=flight_iata)
+                        self.notify_plugin("Delayed", flight, airport=airport, flight_iata=flight_iata)
 
                         # Update last delay print time
                         if airport in self.last_delay_print_time:
@@ -145,7 +139,7 @@ class FlightChecker:
                                     datetime.now() - self.last_delay_print_time[airport][-1]).total_seconds() / 60
                             if self.cancelled_flight_time_window_start < time_since_last_delay < self.cancelled_flight_time_window_end:
                                 logging.info(f"Flight {flight_iata} is cancelled for airport {airport}.")
-                                self.notify_plugin("Cancelled", flight_info, airport=airport, flight_iata=flight_iata)
+                                self.notify_plugin("Cancelled", flight, airport=airport, flight_iata=flight_iata)
         except Exception as e:
             logging.error(f"Error analyzing delays: {str(e)}")
             raise
@@ -156,21 +150,20 @@ class FlightChecker:
         Customize this method to implement the desired notification functionality.
         Args:
             status (str): The flight status (e.g., "Delayed", "Cancelled")
-            flight_info (dict): Information about the flight
+            flight_info (list): Information about the flight
             airport (str): The airport code
             flight_iata (str): The flight IATA code
         """
         # Example implementation: Log the notification details
         logging.info(f"Notifying plugin: Status='{status}', Flight Info='{flight_info}', Airport='{airport}', Flight IATA='{flight_iata}'")
 
-# Define default arguments for the DAG
+
 default_args = {
     'start_date': datetime(2023, 5, 21),
     'retries': 1,
     'retry_delay': timedelta(minutes=1)
 }
 
-# Create the DAG
 with DAG(
         'flight_checker',
         default_args=default_args,
@@ -178,24 +171,21 @@ with DAG(
         schedule_interval=timedelta(minutes=1),
         catchup=False
 ) as dag:
-    # Instantiate the FlightChecker class
     flight_checker = FlightChecker()
 
-    # Define the load_flight_data_task
     load_flight_data_task = PythonOperator(
         task_id='load_flight_data_task',
         python_callable=flight_checker.load_flight_data,
-        provide_context=True,  # Pass the execution context to the callable
+        provide_context=True,
         dag=dag,
     )
 
-    # Define the analyze_delays_task
     analyze_delays_task = PythonOperator(
         task_id='analyze_delays_task',
         python_callable=flight_checker.analyze_delays,
-        provide_context=True,  # Pass the execution context to the callable
+        provide_context=True,
         dag=dag,
     )
 
-    # Set the task dependencies
     load_flight_data_task >> analyze_delays_task
+
