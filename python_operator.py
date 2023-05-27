@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class FlightChecker:
     def __init__(self):
         try:
@@ -25,8 +26,10 @@ class FlightChecker:
             self.cancelled_flight_time_window_end = int(os.getenv("CANCELLED_FLIGHT_TIME_WINDOW_END", "0"))
             self.api_host = os.getenv("API_HOST", "https://airlabs.co/api/v9")
             self.api_endpoint = os.getenv("API_ENDPOINT", "schedules")
-            self.ignored_destinations_bcn = os.getenv("IGNORED_DESTINATIONS_BCN", "").split(",") if os.getenv("IGNORED_DESTINATIONS_BCN") else []
-            self.ignored_destinations_ams = os.getenv("IGNORED_DESTINATIONS_AMS", "").split(",") if os.getenv("IGNORED_DESTINATIONS_AMS") else []
+            self.ignored_destinations_bcn = os.getenv("IGNORED_DESTINATIONS_BCN", "").split(",") if os.getenv(
+                "IGNORED_DESTINATIONS_BCN") else []
+            self.ignored_destinations_ams = os.getenv("IGNORED_DESTINATIONS_AMS", "").split(",") if os.getenv(
+                "IGNORED_DESTINATIONS_AMS") else []
             self.last_delay_print_time = {}  # Stores the last delay print time for each airport
 
             self.validate_environment_variables()
@@ -113,7 +116,8 @@ class FlightChecker:
 
                         flight_iata = flight[5]
 
-                        if airport in self.last_delay_print_time and flight_iata in self.last_delay_print_time[airport]:
+                        if airport in self.last_delay_print_time and flight_iata in self.last_delay_print_time[
+                            airport]:
                             continue  # Skip already processed delays
 
                         logging.info(f"Flight {flight_iata} is delayed for airport {airport}.")
@@ -129,7 +133,8 @@ class FlightChecker:
                         if status == "cancelled":
                             time_since_last_delay = (
                                     datetime.now() - self.last_delay_print_time[airport][-1]).total_seconds() / 60
-                            if self.cancelled_flight_time_window_start < time_since_last_delay < self.cancelled_flight_time_window_end:
+                            if self.cancelled_flight_time_window_start < time_since_last_delay < \
+                                    self.cancelled_flight_time_window_end:
                                 logging.info(f"Flight {flight_iata} is cancelled for airport {airport}.")
                                 self.notify_plugin("Cancelled", flight, airport=airport, flight_iata=flight_iata)
 
@@ -170,13 +175,15 @@ class FlightChecker:
             flight_iata (str): The flight IATA code
         """
         # Example implementation: Log the notification details
-        logging.info(f"Notifying plugin: Status='{status}', Flight Info='{flight_info}', Airport='{airport}', Flight IATA='{flight_iata}'")
+        logging.info(
+            f"Notifying plugin: Status='{status}', Flight Info='{flight_info}', Airport='{airport}', Flight IATA='{flight_iata}'")
 
 
 class DelayedApiCallSensor(BaseSensorOperator):
     @apply_defaults
     def __init__(self, *args, **kwargs):
         super(DelayedApiCallSensor, self).__init__(*args, **kwargs)
+        self.last_api_call_time = None
 
     def poke(self, context):
         flight_checker = FlightChecker()
@@ -186,8 +193,12 @@ class DelayedApiCallSensor(BaseSensorOperator):
 
         next_call_time = flight_checker.get_next_call_time(ongoing_delays, current_time)
 
-        if current_time >= next_call_time:
-            return True
+        if self.last_api_call_time is None or self.last_api_call_time < next_call_time:
+            if current_time >= next_call_time:
+                self.last_api_call_time = current_time  # Record the last successful API call time
+                return True
+            else:
+                return False
         else:
             return False
 
@@ -227,7 +238,9 @@ with DAG(
         dag=dag,
     )
 
-    load_flight_data_task >> analyze_delays_task >> delayed_api_call_sensor
+    load_flight_data_task >> delayed_api_call_sensor
+    analyze_delays_task >> delayed_api_call_sensor
+
 
 
 
