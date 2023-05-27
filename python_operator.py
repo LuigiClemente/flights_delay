@@ -8,12 +8,14 @@ from pytz import timezone
 from dotenv import load_dotenv
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
+from airflow.providers.jenkins.operators.jenkins import JenkinsJobTriggerOperator
 
 load_dotenv()
 
 class FlightChecker:
     def __init__(self):
         try:
+            # Load environment variables
             self.api_key = os.getenv("FLIGHTS_API_KEY")
             self.airports = os.getenv("AIRPORTS")
             self.airlines = os.getenv("AIRLINES")
@@ -210,7 +212,15 @@ class FlightChecker:
         Returns:
             bool: True if the flight is delayed, False otherwise
         """
-        departure_time = datetime.fromisoformat(flight["departure_time"]).replace(tzinfo=timezone('UTC'))
+        departure_time = flight.get("departure_time")
+        if not departure_time:
+            logging.error("Departure time missing from flight data")
+            return False
+        try:
+            departure_time = datetime.fromisoformat(departure_time).replace(tzinfo=timezone('UTC'))
+        except ValueError:
+            logging.error(f"Invalid isoformat string: '{departure_time}'")
+            return False
         return departure_time + timedelta(minutes=self.delay_threshold) < datetime.now(tz=timezone('UTC'))
 
     def is_flight_data_valid(self, config):
@@ -290,13 +300,14 @@ class FlightChecker:
         for flight in flight_data:
             print(flight)
 
-
+# Define the default arguments for the DAG
 default_args = {
     'start_date': datetime(2023, 5, 21),
     'retries': 1,
     'retry_delay': timedelta(minutes=1)
 }
 
+# Create the DAG
 with DAG(
         'flight_checker',
         default_args=default_args,
@@ -304,8 +315,10 @@ with DAG(
         schedule_interval=timedelta(minutes=1),
         catchup=False
 ) as dag:
+    # Instantiate the FlightChecker class
     flight_checker = FlightChecker()
 
+    # Define the tasks
     load_flight_data_task = PythonOperator(
         task_id='load_flight_data_task',
         python_callable=flight_checker.load_flight_data,
@@ -333,6 +346,8 @@ with DAG(
         dag=dag,
     )
 
+    # Define the task dependencies
     load_flight_data_task >> analyze_delays_task >> update_config_file_task >> check_flight_status_task
+
 
 
