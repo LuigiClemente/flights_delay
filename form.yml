@@ -1,0 +1,96 @@
+name: Flight Disruption Form
+description: Report flight disruptions
+title: Flight Disruption Report
+labels: [Flight, Disruption]
+assignees:
+  - username1
+  - username2
+body:
+  - type: radio
+    attributes:
+      label: Type
+      options:
+        - label: Individual
+          value: individual
+        - label: Collective
+          value: collective
+    validations:
+      required: true
+
+  - type: toggle
+    attributes:
+      label: Publish now
+      value: false
+
+  - type: input
+    attributes:
+      label: Departing from
+      description: Enter your departure location
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Final destination
+      description: Enter your final destination
+    validations:
+      required: true
+
+  - type: datepicker
+    attributes:
+      label: Departure date
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Airline
+      description: Enter the airline name
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Flight number
+      description: Enter the flight number
+    validations:
+      required: true
+
+  - type: radio
+    attributes:
+      label: Flight disruption
+      options:
+        - label: My flight was delayed
+          value: delay
+        - label: My flight was canceled
+          value: cancellation
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Delay length
+      description: Enter the duration of the delay
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Delay reason
+      description: Provide the reason for the delay
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Assistance type
+      description: Specify the type of assistance required
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Assistance details
+      description: Provide additional details regarding the assistance required
+    validations:
+      required: true
