@@ -2,6 +2,7 @@ from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
 from airflow.models import XCom
 from airflow.utils.dates import datetime, timedelta
+from airflow.contrib.operators.jenkins_operator import JenkinsJobTriggerOperator
 from airflow.sensors.base_sensor_operator import BaseSensorOperator
 from airflow.utils.decorators import apply_defaults
 import logging
@@ -210,11 +211,11 @@ default_args = {
 }
 
 with DAG(
-        'flight_checker',
-        default_args=default_args,
-        description='Flight Checker DAG',
-        schedule_interval=timedelta(minutes=1),
-        catchup=False
+    'flight_checker',
+    default_args=default_args,
+    description='Flight Checker DAG',
+    schedule_interval=timedelta(minutes=1),
+    catchup=False
 ) as dag:
     flight_checker = FlightChecker()
 
@@ -232,14 +233,27 @@ with DAG(
         dag=dag,
     )
 
-    delayed_api_call_sensor = DelayedApiCallSensor(
-        task_id='delayed_api_call_sensor',
-        poke_interval=60,  # Check the condition every 60 seconds
+    api_call_sensor = DelayedApiCallSensor(
+        task_id='api_call_sensor',
+        poke_interval=timedelta(minutes=1),
+        timeout=timedelta(minutes=30),
         dag=dag,
     )
 
-    load_flight_data_task >> delayed_api_call_sensor
-    analyze_delays_task >> delayed_api_call_sensor
+    jenkins_trigger = JenkinsJobTriggerOperator(
+        task_id='trigger_jenkins_job',
+        job_name='your_jenkins_job_name',  # Replace with your Jenkins job name
+        parameters={'key': 'value'},  # Replace with your Jenkins job parameters
+        jenkins_connection_id='your_jenkins_connection_id',  # Replace with your Jenkins connection ID
+        sleep_time=30,
+        max_try_before_job_appears=10,
+        allowed_jenkins_states=['SUCCESS'],
+        dag=dag,
+    )
+
+    load_flight_data_task >> analyze_delays_task >> jenkins_trigger
+    api_call_sensor >> analyze_delays_task
+
 
 
 
